@@ -1,0 +1,101 @@
+slides 2 (30 seconds):
+I'm Alexander, and I'm one of the developers of the Pocket Science Lab, as well as the main developer of the PSLab's Python API.
+In this video, I will show you how many types of sensors can be easily interfaced with using the PSLab and a little bit of Python code.
+
+slide 2 (30 seconds):
+First I will briefly introduce the PSLab's main instruments, and give a few examples of how they can be combined to drive different types of sensors.
+Next, for the main part of the video I will demonstrate how to write a driver for a specific sensor, the TCD1304.
+For this part some programming experience is recommended.
+
+slide 3 (2 minutes):
+Pocket Science Lab, or PSLab for short.
+Think of it as a swiss army knife of scientific instruments.
+Oscilloscope: Capture analog time series data at up to 2 MSps and up to 4 channels.
+Multimeter: Measure analog signals and values of common electrical components (resistors, capacitors).
+Logic analyzer: Capture digital time series data at up to 10 MHz and up to 4 channels.
+Waveform generator: Generate periodic analog waveforms up to 5 kHz on up to 2 channels.
+PWM generator: Generate PWM signals up to 10 MHz, or control digital output pins manually.
+Power source: Programmable voltage sources between -5 V to 5 V and programmable current source up to 3 mA.
+
+slide 4 (1 minute):
+Many of the PSLab's instruments can be used simultanously.
+By combining one or more of the PSLab's instruments with external devices, many sensors can be implemented simply with a few lines of Python code.
+For example, many sensors output analog signals which can be read by either the oscilloscope or the multimeter, depending on how fast the measurement needs to be.
+Some devices must be triggered by sending a pulse to initiate measurement. The PWM generator can be used for this purpose.
+
+slide 5 (2 minutes):
+3648 pixels, the light hitting each pixel is output as a voltage value
+Pixel data is preceded by 32 dummy pixels and followed by 14 dummy pixels
+Three clocks must be provided:
+Master clock, which determines data rate (800 kHz to 4 MHz clock yields 200 kPx/s - 1 MPx / s data rate)
+Shift gate and integration clear gate, which together control when pixel values are output as voltage values.
+The output voltages are high for unexposed pixels (about 2.5 V) and low for fully exposed pixels (about 0.6 V).
+
+slide 6 (1 minute):
+We are going to see how we can use the PSLab to generate clocks to drive the TCD1304 and simultaneously record its output, all with a few lines of Python code.
+The final instrument will combine the PWM generator to drive the clocks with the oscilloscope to capture the output signal.
+During developement we will also make use to the logic analyzer to make sure the clocks we generate meet the sensor's timing requirements.
+
+slide 7 (1 minute + 5 minutes coding):
+The TCD1304 has some rather precise timing requirements, specifically with regards to the SH and ICG clock signals and their relative high and low periods.
+SH is normally low, while ICG is normally high. In order for the TCD1304 to work, the ICG line must first go low, followed by the SH line going high within 1000 nanoseconds.
+Both lines must remain in these respective states for at least 1000 nanoseconds.
+The SH line must then go low, while the ICG line must remain low for at least another 1000 nanoseconds.
+Following this, pixel values are output when the ICG line goes high.
+
+(switch to coding view)
+Before we start, we need to connect the PSLab's SQ2 and SQ3 pins to the LA1 and LA2 pins.
+Let's create a TCD1304 class, which will contain the methods we need to control the sensor.
+The first thing we will need is a connection to the PSLab board. This is provided by the SerialHandler object.
+Next, we create a PWM generator to use within the sensor class.
+We will set the master clock to 2 MHz using the PWMGenerator's `map_reference_clock` method, which prescales and ouputs the PSLab's internal oscillator to a digital output pin.
+We are also going to set the frequency at which the sensor will output data to 125 Hz. This is close to the maximum ICG frequency for a master clock of 2 MHz (137 Hz). 125 Hz is an even divisor of the PSLab's MCU frequency, which has certain benefits.
+Now, we need to set the SH and ICG duty cycles in such a way as to meet the timing requirements discussed previously.
+The duty cycle is set as a fraction of the signal period, which is the inverse of the frequency. The SH line should be high for 1000 nanoseconds, so its duty cycle should be [so and so].
+The ICG line should be low for a total of 2500 nanoseconds, so its duty cycle is 1 minus [so and so].
+Finally, we need to shift these signals relative to each other so that the SH line goes high shortly after the ICG line goes high. To do this, we set the phase of the SH signal.
+The PSLab's PWM signals are high at the start of the their period and low at the end. The SH signal therefore needs to be shifted backwards by [so and so], which is the same as shifting it forward by 1 minus [so and so].
+Now, we will use the LogicAnalyzer to capture the clocks and view then with matplotlib.
+Let's zoom in a bit.
+The x-axis unit is time in microseconds.
+Recall that the time between the ICG line going low to the SH line going high must be at most 1000 nanoseconds and the ICG line must remain low for at least 1000 nanoseconds after SH goes back low.
+The first criterion is met, but not the second. The reason is that in order to generate a frequency as low as 125 Hz the timer driving the PSLab's PWM generator must be prescaled, which results in a plus-minus 500 nanosecond timing error margin.
+So, let's increase the phase slightly.
+Now, both criteria are met.
+
+slide 8 (1 minute + 5 minutes coding):
+Next, we need to capture the pixel values output by the TCD1304.
+Before we start, we must connect the TCD1304 to the PSLab.
++5V -> VCC and VDD
+GND -> SS
+CH3 -> OS
+SQ1 -> fM
+SQ2 -> SH
+SQ3 -> ICG
+I am going to place a piece of cardboard in which I have cut a thin slit over the sensor.
+This should make it so that most pixels are not exposed to light.
+Since the data rate is quite high, 500 kpx/s in our case, we need to use the PSLab's oscilloscope to record the output.
+So, let's add an Oscilloscope object to our TCD1304 class.
+We no longer need the LogicAnalyzer, so let's remove that.
+The read method will just be a single line, calling the oscilloscope.
+For now, let's record as much data as possible: 10000 samples, the most the PSLab can record at once.
+Let's run it.
+Here we see that we are indeed getting some kind of data from the sensor.
+However, which value corresponds to which pixel?
+We need to know when the sensor starts and stops outputting data.
+The ICG pulse starts the data output, so let's connect the ICG line to the PSLab's CH2 analog input.
+Now let's also capture CH2 and view both signals.
+Now we can see where the data begins.
+The PSLab's oscilloscope has a trigger feature, which makes it wait until a certain value crosses a threshold before recording any data.
+Let's trigger on CH2 and set the trigger voltage to 3V.
+Now we can see that the capture start is synced with the sensor's output.
+Let's reduce the number of samples captured to see it more clearly.
+This is all well and good, but it's unnecessary to record the ICG line.
+The PSLab can trigger on a certain channel even if that channel is not recorded, like so.
+Now, let's see what this looks like while moving the cardboard back and forth over the sensor.
+Pretty neat.
+The PSLab does all the heavy lifting, so we can do all of this in less than 50 lines of Python.
+The main take-away from this presentation should be this: With the PSLab and its Python API, you can do a lot without writing a lot of low-level C code, or having to mess around with hardware registers and that sort of thing.
+Though can of course to that too, if that's your preference.
+That's the end of this video, let's move on to the live Q&A session.
+Thanks for watching.
